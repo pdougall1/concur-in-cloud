@@ -3,18 +3,18 @@ package main
 import (
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 )
 
+var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
 type TheMessage struct {
 	Message struct {
+		Data       []byte `json:"data"`
 		Attributes struct {
-			Target         string  `json:"target"`
-			PopulationSize int     `json:"populationSize"`
-			MaxGenerations int     `json:"maxGenerations"`
-			MutationRate   float64 `json:"mutationRate"`
+			AccountID string `json:"account_id"`
 		} `json:"attributes"`
 
 		ID string `json:"id"`
@@ -22,18 +22,27 @@ type TheMessage struct {
 	Subscription string `json:"subscription"`
 }
 
+type MessageData struct {
+	Target         string  `json:"target"`
+	PopulationSize int     `json:"population_size"`
+	MaxGenerations int     `json:"max_generations"`
+	MutationRate   float64 `json:"mutation_rate"`
+}
+
 func main() {
+	logger.Info("Starting server...")
 	http.HandleFunc("/", HandleTheMessage)
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
-		log.Printf("Defaulting to port %s", port)
+		logger.Info("Defaulting to port %s", port)
 	}
 
-	log.Printf("Listening on port %s", port)
+	logger.Info("Listening on port %s", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatal(err)
+		logger.Error(err.Error())
+		return
 	}
 
 	// target := "SomeString"
@@ -50,38 +59,46 @@ func HandleTheMessage(w http.ResponseWriter, r *http.Request) {
 	var m TheMessage
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("ioutil.ReadAll: %v", err)
+		logger.Error("ioutil.ReadAll: %v", err)
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
 
 	if err := json.Unmarshal(body, &m); err != nil {
-		log.Printf("json.Unmarshal: %v", err)
+		logger.Error("json.Unmarshal body: %v", err)
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
 
-	target := string(m.Message.Attributes.Target)
+	var md MessageData
+	if err := json.Unmarshal(m.Message.Data, &md); err != nil {
+		logger.Error("json.Unmarshal DATA: %v", err)
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+
+	target := string(md.Target)
 	if target == "" {
 		target = "SomeStringToEvolveTo"
 	}
 
-	populationSize := int(m.Message.Attributes.PopulationSize)
+	populationSize := int(md.PopulationSize)
 	if populationSize == 0 {
 		populationSize = 1000
 	}
 
-	maxGenerations := int(m.Message.Attributes.MaxGenerations)
+	maxGenerations := int(md.MaxGenerations)
 	if maxGenerations == 0 {
 		maxGenerations = 5000
 	}
 
-	mutationRate := float64(m.Message.Attributes.MutationRate)
+	mutationRate := float64(md.MutationRate)
 	if mutationRate == 0 {
 		mutationRate = 0.01
 	}
 
+	logger.Info("Evolving", "target", target, "populationSize", populationSize, "maxGenerations", maxGenerations, "mutationRate", mutationRate)
 	genCount, closest := EvolveStrSeq(target, populationSize, maxGenerations, mutationRate)
 
-	log.Printf("Success: %d : %s", genCount, closest)
+	logger.Info("Success: %d : %s", genCount, closest)
 }
