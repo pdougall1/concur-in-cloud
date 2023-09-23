@@ -14,11 +14,7 @@ type PubSubMessage struct {
 	Message struct {
 		Data       []byte `json:"data"`
 		Attributes struct {
-			AccountID      string  `json:"account_id"`
-			Target         string  `json:"target"`
-			PopulationSize int     `json:"population_size"`
-			MaxGenerations int     `json:"max_generations"`
-			MutationRate   float64 `json:"mutation_rate"`
+			AccountID string `json:"account_id"`
 		} `json:"attributes"`
 
 		ID string `json:"id"`
@@ -31,6 +27,10 @@ type MessageData struct {
 	PopulationSize int     `json:"population_size"`
 	MaxGenerations int     `json:"max_generations"`
 	MutationRate   float64 `json:"mutation_rate"`
+}
+
+type Evolver interface {
+	Evolve() (int, string)
 }
 
 func main() {
@@ -48,28 +48,19 @@ func main() {
 		logger.Error(err.Error())
 		return
 	}
-
-	// target := "SomeString"
-	// populationSize := 10000
-	// maxGenerations := 50000
-	// mutationRate := 0.5
-
-	// genCount, closest := EvolveStrSeq(target, populationSize, maxGenerations, mutationRate)
-	// maxFitness := fitness(closest, target)
-	// fmt.Printf("Success: %d : %d : %s", maxFitness, genCount, closest)
 }
 
 func HandleTheMessage(w http.ResponseWriter, r *http.Request) {
+	logger.Info("Handling message concur in cloud")
+
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		logger.Error("Error reading body", "error", err.Error())
 		http.Error(w, "Internal Error", http.StatusInternalServerError)
 		return
 	}
-	logger.Info("Received body", "body", string(bodyBytes))
 
 	var pubsubMessage PubSubMessage
-	logger.Info("Received raw data BEFORE", "data", pubsubMessage.Message.Data)
 
 	if err := json.Unmarshal(bodyBytes, &pubsubMessage); err != nil {
 		logger.Error("json.Unmarshal DATA", "error", err.Error(), "data", string(pubsubMessage.Message.Data))
@@ -110,6 +101,10 @@ func HandleTheMessage(w http.ResponseWriter, r *http.Request) {
 
 	logger.Info("Evolving", "target", target, "populationSize", populationSize, "maxGenerations", maxGenerations, "mutationRate", mutationRate)
 	genCount, closest := EvolveStrSeq(target, populationSize, maxGenerations, mutationRate)
+
+	evolver := NewEvolverConcurrent(target, populationSize, maxGenerations, mutationRate)
+	// evolver := NewEvolverSequential(target, populationSize, maxGenerations, mutationRate)
+	evolver.Evolve()
 
 	logger.Info("Success", "generation_count", genCount, "closest", closest)
 

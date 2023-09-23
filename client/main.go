@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
+	"math/rand"
+	"time"
 
 	"cloud.google.com/go/pubsub"
 )
-
-const times = 1
 
 type MessageData struct {
 	Target         string  `json:"target"`
@@ -37,7 +36,7 @@ func main() {
 		Target:         "SomeString",
 		PopulationSize: 10000,
 		MaxGenerations: 50000,
-		MutationRate:   0.5,
+		MutationRate:   0.25,
 	}
 
 	data, err := json.Marshal(m)
@@ -45,17 +44,14 @@ func main() {
 		panic(err)
 	}
 
-	results := make([]*pubsub.PublishResult, times)
+	keepPublishing := true
+	for keepPublishing {
+		jitter := rand.Intn(100)
+		time.Sleep(time.Duration(jitter) * time.Millisecond)
 
-	for i := 0; i < times; i++ {
-		results[i] = t.Publish(ctx, &pubsub.Message{
+		result := t.Publish(ctx, &pubsub.Message{
 			Data: data,
 		})
-	}
-
-	wg := sync.WaitGroup{}
-	for _, r := range results {
-		wg.Add(1)
 
 		go func(r *pubsub.PublishResult) {
 			id, err := r.Get(ctx) // Block until the result is confirmed
@@ -66,12 +62,8 @@ func main() {
 			}
 
 			fmt.Printf("Published message; msg ID: %v\n", id)
-
-			wg.Done()
-		}(r)
+		}(result)
 	}
-
-	wg.Wait()
 
 	fmt.Println("Done")
 }

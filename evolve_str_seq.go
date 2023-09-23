@@ -8,9 +8,7 @@ import (
 
 const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-var seededRand *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
-
-func randomString(length int) string {
+func randomString(length int, seededRand *rand.Rand) string {
 	b := make([]byte, length)
 	for i := range b {
 		b[i] = charset[seededRand.Intn(len(charset))]
@@ -18,10 +16,10 @@ func randomString(length int) string {
 	return string(b)
 }
 
-func generatePopulation(size int, length int) []string {
+func generatePopulation(size int, length int, seededRand *rand.Rand) []string {
 	population := make([]string, size)
 	for i := range population {
-		population[i] = randomString(length)
+		population[i] = randomString(length, seededRand)
 	}
 	return population
 }
@@ -49,7 +47,7 @@ func crossover(parent1, parent2 string) string {
 	return parent1[:half] + parent2[half:]
 }
 
-func mutate(s string, mutationRate float64) string {
+func mutate(s string, mutationRate float64, seededRand *rand.Rand) string {
 	if seededRand.Float64() < mutationRate {
 		index := seededRand.Intn(len(s))
 		char := charset[seededRand.Intn(len(charset))]
@@ -75,7 +73,8 @@ func reachedTarget(population []string, target string) (bool, string) {
 }
 
 func EvolveStrSeq(target string, populationSize int, maxGenerations int, mutationRate float64) (int, string) {
-	population := generatePopulation(populationSize, len(target))
+	seededRand := rand.New(rand.NewSource(time.Now().UnixNano() + int64(rand.Intn(1000000))))
+	population := generatePopulation(populationSize, len(target), seededRand)
 	var parent1, parent2 string
 
 	generation := 0
@@ -83,7 +82,7 @@ func EvolveStrSeq(target string, populationSize int, maxGenerations int, mutatio
 	for !reached && generation < maxGenerations {
 		parent1, parent2 = selectParents(population, target)
 		child := crossover(parent1, parent2)
-		child = mutate(child, mutationRate)
+		child = mutate(child, mutationRate, seededRand)
 		replaceLeastFit(population, []string{child}, target)
 		generation++
 		reached, reachedStr = reachedTarget(population, target)
