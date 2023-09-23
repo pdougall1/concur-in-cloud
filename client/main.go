@@ -4,36 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"cloud.google.com/go/pubsub"
-	"google.golang.org/api/iterator"
 )
 
-func list(projectID string) ([]*pubsub.Topic, error) {
-	// projectID := "my-project-id"
-	ctx := context.Background()
-	client, err := pubsub.NewClient(ctx, projectID)
-	if err != nil {
-		return nil, fmt.Errorf("pubsub.NewClient: %w", err)
-	}
-	defer client.Close()
-
-	var topics []*pubsub.Topic
-
-	it := client.Topics(ctx)
-	for {
-		topic, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("Next: %w", err)
-		}
-		topics = append(topics, topic)
-	}
-
-	return topics, nil
-}
+const times = 1
 
 type MessageData struct {
 	Target         string  `json:"target"`
@@ -54,13 +30,6 @@ func main() {
 		panic(err)
 	}
 
-	list, err := list(projectID)
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Printf("Topics: %v\n", list[0].ID())
-
 	t := client.Topic(topicID)
 	defer t.Stop()
 
@@ -76,14 +45,33 @@ func main() {
 		panic(err)
 	}
 
-	result := t.Publish(ctx, &pubsub.Message{
-		Data: []byte(data),
-	})
+	results := make([]*pubsub.PublishResult, times)
 
-	id, err := result.Get(ctx)
-	if err != nil {
-		fmt.Printf("Failed to publish: %v\n", err)
-		return
+	for i := 0; i < times; i++ {
+		results[i] = t.Publish(ctx, &pubsub.Message{
+			Data: data,
+		})
 	}
-	fmt.Printf("Published message; msg ID: %v\n", id)
+
+	wg := sync.WaitGroup{}
+	for _, r := range results {
+		wg.Add(1)
+
+		go func(r *pubsub.PublishResult) {
+			id, err := r.Get(ctx) // Block until the result is confirmed
+
+			if err != nil {
+				fmt.Printf("Failed to publish: %v\n", err)
+				return
+			}
+
+			fmt.Printf("Published message; msg ID: %v\n", id)
+
+			wg.Done()
+		}(r)
+	}
+
+	wg.Wait()
+
+	fmt.Println("Done")
 }
