@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-
 func randomString(length int, seededRand *rand.Rand) string {
 	b := make([]byte, length)
 	for i := range b {

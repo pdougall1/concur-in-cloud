@@ -3,20 +3,25 @@ package main
 import (
 	"math/rand"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
 
-func NewEvolverConcurrent(target string, populationSize int, maxGenerations int, mutationRate float64) Evolver {
+func NewEvolverConcurrent(md MessageData) Evolver {
 	seededRand := rand.New(rand.NewSource(time.Now().UnixNano() + int64(rand.Intn(1000000))))
 
-	return EvolverConcurrent{
-		target:         target,
-		populationSize: populationSize,
-		maxGenerations: maxGenerations,
-		mutationRate:   mutationRate,
+	evolver := &EvolverConcurrent{
+		target:         md.Target,
+		populationSize: md.PopulationSize,
+		maxGenerations: md.MaxGenerations,
+		mutationRate:   md.MutationRate,
 		seededRand:     seededRand,
 	}
+
+	evolver.generatePopulation()
+
+	return evolver
 }
 
 type EvolverConcurrent struct {
@@ -25,102 +30,80 @@ type EvolverConcurrent struct {
 	maxGenerations int
 	mutationRate   float64
 	seededRand     *rand.Rand
+	population     []string
+	generation     int
 }
 
-func (e EvolverConcurrent) Evolve() (int, string) {
-
+func (e *EvolverConcurrent) GetGenerations() int {
+	return e.generation
 }
 
-func randomChars(length int, seededRand *rand.Rand) chan<- byte {
-	c := make(chan<- byte, length)
+func (e *EvolverConcurrent) randomString(length int) string {
+	mu := sync.Mutex{}
+	var b strings.Builder
 
 	for i := 0; i < length; i++ {
-		go func(index int) {
-			c <- charset[seededRand.Intn(len(charset))]
-		}(i)
+		mu.Lock()
+		b.WriteByte(charset[e.seededRand.Intn(len(charset))])
+		mu.Unlock()
 	}
-	return c
+
+	return b.String()
 }
 
-func generatePopulation(size int, length int, seededRand *rand.Rand) []string {
-	population := make([]string, size)
+func (e *EvolverConcurrent) generatePopulation() {
+	e.population = make([]string, e.populationSize)
+
+	length := len(e.target)
 	wg := sync.WaitGroup{}
 
-	for i := range population {
+	for i := range e.population {
+		i := i
 		wg.Add(1)
-		index := i
-		go func(index int) {
-			population[index] = randomString(length, seededRand)
-		}(index)
+		go func(i int) {
+			e.population[i] = e.randomString(length)
+			wg.Done()
+		}(i)
 	}
 
 	wg.Wait()
-	return population
+
+	sort.SliceStable(e.population, func(i, j int) bool {
+		return fitness(e.population[i], e.target) < fitness(e.population[j], e.target)
+	})
 }
 
-func fitness(s1, s2 string) int {
-	count := 0
-	for i := range s1 {
-		if s1[i] != s2[i] {
-			count++
+func (e *EvolverConcurrent) reachedTarget() bool {
+	for _, s := range e.population {
+		if s == e.target {
+			return true
 		}
 	}
-	return count
+
+	return false
+}
+
+func (e *EvolverConcurrent) Evolve() {
+	var parent1, parent2 string
+
+	// It was at this point that I realized this can't really be done concurrently :sob:
+	for !e.reachedTarget() && e.generation < e.maxGenerations {
+		parent1, parent2 = e.selectParents()
+		child := crossover(parent1, parent2)
+		child = mutate(child, e.mutationRate, e.seededRand)
+		e.replaceLeastFit([]string{child})
+		e.generation++
+	}
 }
 
 // Select two parents with a preference for strings with better fitness
-func selectParents(population []string, target string) (string, string) {
-	sort.SliceStable(population, func(i, j int) bool {
-		return fitness(population[i], target) < fitness(population[j], target)
+func (e *EvolverConcurrent) selectParents() (string, string) {
+	return e.population[0], e.population[1]
+}
+
+func (e *EvolverConcurrent) replaceLeastFit(newIndividuals []string) {
+	sort.SliceStable(e.population, func(i, j int) bool {
+		return fitness(e.population[i], e.target) > fitness(e.population[j], e.target)
 	})
-	return population[0], population[1]
-}
-
-func crossover(parent1, parent2 string) string {
-	half := len(parent1) / 2
-	return parent1[:half] + parent2[half:]
-}
-
-func mutate(s string, mutationRate float64, seededRand *rand.Rand) string {
-	if seededRand.Float64() < mutationRate {
-		index := seededRand.Intn(len(s))
-		char := charset[seededRand.Intn(len(charset))]
-		return s[:index] + string(char) + s[index+1:]
-	}
-	return s
-}
-
-func replaceLeastFit(population []string, newIndividuals []string, target string) {
-	sort.SliceStable(population, func(i, j int) bool {
-		return fitness(population[i], target) > fitness(population[j], target)
-	})
-	copy(population[:len(newIndividuals)], newIndividuals)
-}
-
-func reachedTarget(population []string, target string) (bool, string) {
-	for _, s := range population {
-		if s == target {
-			return true, s
-		}
-	}
-	return false, ""
-}
-
-func EvolveStrConcurrent(target string, populationSize int, maxGenerations int, mutationRate float64) (int, string) {
-	seededRand := rand.New(rand.NewSource(time.Now().UnixNano() + int64(rand.Intn(1000000))))
-	population := generatePopulation(populationSize, len(target), seededRand)
-	var parent1, parent2 string
-
-	generation := 0
-	reached, reachedStr := reachedTarget(population, target)
-	for !reached && generation < maxGenerations {
-		parent1, parent2 = selectParents(population, target)
-		child := crossover(parent1, parent2)
-		child = mutate(child, mutationRate, seededRand)
-		replaceLeastFit(population, []string{child}, target)
-		generation++
-		reached, reachedStr = reachedTarget(population, target)
-	}
-
-	return generation, reachedStr
+	copy(e.population[:len(newIndividuals)], newIndividuals)
 }

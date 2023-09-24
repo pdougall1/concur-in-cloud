@@ -8,6 +8,8 @@ import (
 	"os"
 )
 
+const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
 var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 type PubSubMessage struct {
@@ -30,7 +32,8 @@ type MessageData struct {
 }
 
 type Evolver interface {
-	Evolve() (int, string)
+	Evolve()
+	GetGenerations() int
 }
 
 func main() {
@@ -79,34 +82,13 @@ func HandleTheMessage(w http.ResponseWriter, r *http.Request) {
 
 	logger.Info("Message data", "message_data", md)
 
-	target := string(md.Target)
-	if target == "" {
-		target = "SomeStringToEvolveTo"
-	}
+	// genCount, closest := EvolveStrSeq(target, populationSize, maxGenerations, mutationRate)
 
-	populationSize := int(md.PopulationSize)
-	if populationSize == 0 {
-		populationSize = 1000
-	}
-
-	maxGenerations := int(md.MaxGenerations)
-	if maxGenerations == 0 {
-		maxGenerations = 5000
-	}
-
-	mutationRate := float64(md.MutationRate)
-	if mutationRate == 0 {
-		mutationRate = 0.01
-	}
-
-	logger.Info("Evolving", "target", target, "populationSize", populationSize, "maxGenerations", maxGenerations, "mutationRate", mutationRate)
-	genCount, closest := EvolveStrSeq(target, populationSize, maxGenerations, mutationRate)
-
-	evolver := NewEvolverConcurrent(target, populationSize, maxGenerations, mutationRate)
-	// evolver := NewEvolverSequential(target, populationSize, maxGenerations, mutationRate)
+	evolver := NewEvolverConcurrent(md)
+	// evolver := NewEvolverSequential(md)
 	evolver.Evolve()
 
-	logger.Info("Success", "generation_count", genCount, "closest", closest)
+	logger.Info("Success", "generation_count", evolver.GetGenerations())
 
 	w.WriteHeader(http.StatusOK)
 }
